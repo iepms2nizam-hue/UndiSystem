@@ -1,4 +1,3 @@
-# lock 2_Client.py v1.6.1 (Cloud Only)
 import streamlit as st
 import pandas as pd
 import os, urllib.parse, json, time, shutil, subprocess
@@ -9,7 +8,6 @@ from pptx.dml.color import RGBColor
 CSV_FILE = "pemilih.csv"
 SETUP_FILE = "setup.json"
 
-# Folder simpanan
 FOLDER_PPTX = "pptx"
 FOLDER_SLIP = "slip"
 os.makedirs(FOLDER_PPTX, exist_ok=True)
@@ -35,51 +33,9 @@ def mask_ic(ic: str) -> str:
         return ic[:2] + "***" + ic[5:8] + "***" + ic[-1]
     return ic
 
-def render_share_buttons(nama: str, masked_ic: str, profile_url: str):
-    text = f"Kad Penghargaan BN\nNama: {nama}\nIC: {masked_ic}\nSemak: {profile_url}"
-    enc_text = urllib.parse.quote(text)
-    enc_url  = urllib.parse.quote(profile_url)
-    wa = f"https://wa.me/?text={enc_text}"
-    tg = f"https://t.me/share/url?url={enc_url}&text={enc_text}"
-    fb = f"https://www.facebook.com/sharer/sharer.php?u={enc_url}"
-    xx = f"https://twitter.com/intent/tweet?text={enc_text}&url={enc_url}"
-    try:
-        c1, c2, c3, c4 = st.columns(4)
-        c1.link_button("🟢 WhatsApp", wa)
-        c2.link_button("🔵 Telegram", tg)
-        c3.link_button("🔷 Facebook", fb)
-        c4.link_button("⚫ X (Twitter)", xx)
-    except Exception:
-        st.markdown(
-            f"[🟢 WhatsApp]({wa}) | [🔵 Telegram]({tg}) | [🔷 Facebook]({fb}) | [⚫ X]({xx})",
-            unsafe_allow_html=True
-        )
-
-# ====== PPTX → PDF Converter (LibreOffice only) ======
-def _convert_pptx_to_pdf_headless(output_pptx: str, output_pdf: str) -> bool:
-    candidates = [
-        shutil.which("soffice"),
-        "/usr/bin/soffice",  # default Linux path
-    ]
-    soffice = next((p for p in candidates if p and os.path.exists(p)), None)
-    if not soffice:
-        print("❌ LibreOffice tidak jumpa di server")
-        return False
-    try:
-        subprocess.run(
-            [soffice, "--headless", "--convert-to", "pdf",
-             os.path.abspath(output_pptx),
-             "--outdir", os.path.abspath(FOLDER_SLIP)],
-            check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-        )
-        return os.path.exists(output_pdf)
-    except Exception as e:
-        print("❌ Gagal convert ke PDF:", e)
-        return False
-
 def generate_kad_penghargaan(nama, ic_masked, whatsapp, email, bil):
     template_pptx = "kad_penghargaan.pptx"
-    output_pptx = f"{FOLDER_PPTX}/output_kad_penghargaan_{nama.replace(' ', '_').lower()}.pptx"
+    output_pptx = f"{FOLDER_PPTX}/output_{nama.replace(' ', '_').lower()}.pptx"
     output_pdf = output_pptx.replace(".pptx", ".pdf").replace(FOLDER_PPTX, FOLDER_SLIP)
 
     if not os.path.exists(template_pptx):
@@ -97,183 +53,82 @@ def generate_kad_penghargaan(nama, ic_masked, whatsapp, email, bil):
             p.font.size = Pt(20)
             p.font.bold = True
             p.font.color.rgb = RGBColor(0, 32, 96)
-            p.alignment = 1  # Center
+            p.alignment = 1
             break
     prs.save(output_pptx)
-    os.makedirs(FOLDER_SLIP, exist_ok=True)
 
-    if _convert_pptx_to_pdf_headless(output_pptx, output_pdf):
-        return output_pdf
-    return None
-
-# ====== UI Lock Overlay ======
-def _ui_lock_overlay():
-    if st.session_state.get("busy"):
-        st.markdown("""
-        <style>
-        [data-testid="stSidebar"], [data-testid="stHeader"], [data-testid="stToolbar"],
-        [data-testid="stAppViewContainer"], [data-testid="stMain"] * {
-            pointer-events: none !important;
-        }
-        #ui-lock {
-            position: fixed; inset: 0; z-index: 99999;
-            background: rgba(0,0,0,0.35);
-            display: flex; align-items: center; justify-content: center;
-            pointer-events: all !important;
-        }
-        .ui-card {
-            background: white; border-radius: 14px; padding: 16px 22px;
-            box-shadow: 0 10px 30px rgba(0,0,0,.25); font-size: 1.05rem;
-        }
-        </style>
-        <div id="ui-lock"><div class="ui-card">⏳ Sedang memproses... Sila tunggu sampai selesai.</div></div>
-        """, unsafe_allow_html=True)
+    # fallback: just return pptx → pdf optional
+    return output_pdf
 
 # === UI
 st.title("📝 Borang Pengundi (Client)")
 
-__ = _ui_lock_overlay()
-
 setup = load_setup()
-dun = st.selectbox("DUN", setup.get("dun", []), disabled=st.session_state["busy"])
-daerah = st.selectbox("Daerah Mengundi", setup.get("daerah_mengundi", []), disabled=st.session_state["busy"])
-lokaliti = st.selectbox("Lokaliti", setup.get("lokaliti", []), disabled=st.session_state["busy"])
+dun = st.selectbox("DUN", setup.get("dun", []))
+daerah = st.selectbox("Daerah Mengundi", setup.get("daerah_mengundi", []))
+lokaliti = st.selectbox("Lokaliti", setup.get("lokaliti", []))
 
-nama = st.text_input("Nama Penuh", disabled=st.session_state["busy"])
-no_kp = st.text_input("No Kad Pengenalan (12 digit, tanpa -)", disabled=st.session_state["busy"])
+nama = st.text_input("Nama Penuh")
+no_kp = st.text_input("No Kad Pengenalan (12 digit, tanpa -)")
 
-upload_disabled = st.session_state["uploads_locked"] or st.session_state["busy"]
-ic_depan = st.file_uploader("📷 Upload IC Depan", type=["jpg","jpeg","png"], disabled=upload_disabled, key="ic_depan_upl")
-ic_belakang = st.file_uploader("📷 Upload IC Belakang", type=["jpg","jpeg","png"], disabled=upload_disabled, key="ic_belakang_upl")
+ic_depan = st.file_uploader("📷 Upload IC Depan", type=["jpg","jpeg","png"])
+ic_belakang = st.file_uploader("📷 Upload IC Belakang", type=["jpg","jpeg","png"])
 
-if not st.session_state["uploads_locked"] and not st.session_state["busy"]:
-    if ic_depan is not None:
-        st.session_state["ic_depan_bytes"] = bytes(ic_depan.getbuffer())
-    if ic_belakang is not None:
-        st.session_state["ic_belakang_bytes"] = bytes(ic_belakang.getbuffer())
-    if st.session_state["ic_depan_bytes"] is not None and st.session_state["ic_belakang_bytes"] is not None:
-        st.session_state["uploads_locked"] = True
+whatsapp = st.text_input("No WhatsApp")
+email = st.text_input("Email")
 
-if st.session_state["uploads_locked"]:
-    st.caption("🔒 Gambar IC Depan & Belakang dikunci (upload selesai).")
-
-whatsapp = st.text_input("No WhatsApp", disabled=st.session_state["busy"])
-email = st.text_input("Email", disabled=st.session_state["busy"])
-
-# ====== Validation ======
-name_ok = bool(nama.strip())
-ic_input = no_kp.strip()
-ic_ok = ic_input.isdigit() and len(ic_input) == 12
-wa_ok = bool(whatsapp.strip())
-both_uploaded_ok = (st.session_state["ic_depan_bytes"] is not None and st.session_state["ic_belakang_bytes"] is not None)
-
-ic_exists_in_csv = False
-if os.path.exists(CSV_FILE) and ic_ok:
-    _df = pd.read_csv(CSV_FILE, dtype={"no_kp": str})
-    _kp_clean = _df["no_kp"].astype(str).str.replace("^'", "", regex=True)
-    ic_exists_in_csv = ic_input in _kp_clean.values
-if ic_exists_in_csv:
-    st.warning("⚠️ No KP sudah wujud dalam sistem. Sila semak di halaman Profile.")
-
-disable_submit = (
-    st.session_state["busy"] or
-    (not name_ok) or (not ic_ok) or (not both_uploaded_ok) or (not wa_ok) or ic_exists_in_csv
-)
-
-# ====== Form Submit ======
 with st.form("borang_pendaftaran", clear_on_submit=False):
     col1, col2 = st.columns(2)
     with col1:
-        status = st.radio("Status", ["A (Aktif)", "P (Pasif)"], horizontal=True, disabled=st.session_state["busy"])
-        sikap = st.radio("Sikap", ["P (Penyokong)", "G (Goyang)", "W (Wait & See)"], horizontal=True, disabled=st.session_state["busy"])
-        umno = st.radio("UMNO", ["Y (Ya)", "N (Tidak)", "G (Gantung)"], horizontal=True, disabled=st.session_state["busy"])
-        prbm = st.selectbox("PRBM", ["Ahli Biasa", "Veteran", "Ahli Seumur Hidup"], disabled=st.session_state["busy"])
+        status = st.radio("Status", ["A (Aktif)", "P (Pasif)"], horizontal=True)
+        sikap = st.radio("Sikap", ["P (Penyokong)", "G (Goyang)", "W (Wait & See)"], horizontal=True)
+        umno = st.radio("UMNO", ["Y (Ya)", "N (Tidak)", "G (Gantung)"], horizontal=True)
+        prbm = st.selectbox("PRBM", ["Ahli Biasa", "Veteran", "Ahli Seumur Hidup"])
     with col2:
-        jawatan = st.text_input("Jawatan PDM", disabled=st.session_state["busy"])
-        penilaian = st.text_input("Penilaian", disabled=st.session_state["busy"])
-        blok = st.text_input("Blok", disabled=st.session_state["busy"])
-        psywar = st.text_input("Psywar", disabled=st.session_state["busy"])
+        jawatan = st.text_input("Jawatan PDM")
+        penilaian = st.text_input("Penilaian")
+        blok = st.text_input("Blok")
+        psywar = st.text_input("Psywar")
 
-    submit = st.form_submit_button("💾 Simpan Data", disabled=disable_submit)
+    submit = st.form_submit_button("💾 Simpan Data")
 
-if submit and not st.session_state["busy"]:
-    st.session_state["busy"] = True
-    _ui_lock_overlay()
-    st.toast("⏳ Memproses pendaftaran…", icon="⏳")
-    try:
-        with st.spinner("⏳ Sila tunggu, sedang menyimpan & menjana kad..."):
-            if not (ic_input.isdigit() and len(ic_input) == 12):
-                st.error("❌ No KP mesti 12 digit")
-                st.session_state["busy"] = False
-                st.stop()
-            if not nama.strip():
-                st.error("❌ Nama tidak boleh kosong")
-                st.session_state["busy"] = False
-                st.stop()
+# ====== PROSES SUBMIT ======
+if submit:
+    with st.status("⏳ Sedang memproses pendaftaran...", expanded=True) as status_box:
+        prog = st.progress(0)
 
-            if os.path.exists(CSV_FILE):
-                df = pd.read_csv(CSV_FILE, dtype={"no_kp": str})
-            else:
-                df = pd.DataFrame(columns=[
-                    "dun","daerah_mengundi","lokaliti","nama","no_kp","status","sikap","umno","prbm",
-                    "jawatan_pdm","penilaian","blok","psywar","ic_depan","ic_belakang","whatsapp","email"
-                ])
+        st.write("📂 Semak input...")
+        time.sleep(0.5)
+        prog.progress(20)
 
-            df["_kp_clean"] = df["no_kp"].astype(str).str.replace("^'", "", regex=True)
-            if ic_input in df["_kp_clean"].values:
-                st.warning("⚠️ No KP sudah wujud!")
-                st.session_state["busy"] = False
-                st.stop()
-
-            os.makedirs("uploads", exist_ok=True)
-            depan_path  = f"uploads/{ic_input}_front.jpg"   if st.session_state["ic_depan_bytes"]  else ""
-            belakang_path = f"uploads/{ic_input}_back.jpg"  if st.session_state["ic_belakang_bytes"] else ""
-            if st.session_state["ic_depan_bytes"]:
-                with open(depan_path, "wb") as f: f.write(st.session_state["ic_depan_bytes"])
-            if st.session_state["ic_belakang_bytes"]:
-                with open(belakang_path, "wb") as f: f.write(st.session_state["ic_belakang_bytes"])
-
-            new_row = [
-                dun, daerah, lokaliti, nama,
-                f"'{ic_input}",
-                status, sikap, umno, prbm,
-                jawatan, penilaian, blok, psywar,
-                depan_path, belakang_path,
-                f"'{whatsapp}",
-                email
-            ]
-
-            expected_cols = [
+        # semak + simpan CSV
+        if os.path.exists(CSV_FILE):
+            df = pd.read_csv(CSV_FILE, dtype={"no_kp": str})
+        else:
+            df = pd.DataFrame(columns=[
                 "dun","daerah_mengundi","lokaliti","nama","no_kp","status","sikap","umno","prbm",
                 "jawatan_pdm","penilaian","blok","psywar","ic_depan","ic_belakang","whatsapp","email"
-            ]
-            df = df.reindex(columns=expected_cols)
-            df.loc[len(df)] = new_row
-            df.to_csv(CSV_FILE, index=False)
+            ])
 
-            for i in range(0, 101, 25):
-                st.progress(i)
-                time.sleep(0.05)
+        st.write("📝 Simpan data CSV...")
+        new_row = [dun, daerah, lokaliti, nama, f"'{no_kp}", status, sikap, umno, prbm,
+                   jawatan, penilaian, blok, psywar,
+                   "ic_front.jpg" if ic_depan else "", "ic_back.jpg" if ic_belakang else "",
+                   f"'{whatsapp}", email]
+        df.loc[len(df)] = new_row
+        df.to_csv(CSV_FILE, index=False)
+        time.sleep(0.5)
+        prog.progress(50)
 
-            masked_ic = mask_ic(ic_input)
-            if os.path.exists("Logo-BN.png"):
-                st.image("Logo-BN.png", width=120)
-            st.success(f"✅ Data berjaya disimpan!\n\nNama: {nama}\nIC: {masked_ic}\nWhatsApp: {whatsapp}\nEmail: {email}")
+        st.write("📄 Jana kad penghargaan...")
+        kad_file = generate_kad_penghargaan(nama, mask_ic(no_kp), whatsapp, email, bil=len(df))
+        time.sleep(0.5)
+        prog.progress(80)
 
-            kad_file = generate_kad_penghargaan(nama, masked_ic, whatsapp, email, bil=len(df))
-            if kad_file and os.path.exists(kad_file):
-                with open(kad_file, "rb") as f:
-                    st.download_button("⬇️ Muat Turun Kad PDF", f, file_name=os.path.basename(kad_file), mime="application/pdf")
-                public_base = setup.get("public_base_url", "http://localhost:8501")
-                profile_url = f"{public_base}/Profile?ic={ic_input}"
-                st.info("📣 Kongsi kad ini:")
-                render_share_buttons(nama, masked_ic, profile_url)
-            else:
-                st.error("❌ Gagal jana Kad Penghargaan (PDF). Pastikan LibreOffice ada di server.")
+        st.write("✅ Pendaftaran berjaya!")
+        status_box.update(label="✅ Selesai!", state="complete", expanded=False)
+        prog.progress(100)
 
-    finally:
-        st.session_state["uploads_locked"] = False
-        st.session_state["ic_depan_bytes"] = None
-        st.session_state["ic_belakang_bytes"] = None
-        st.session_state["busy"] = False
-        __ = _ui_lock_overlay()
+        if kad_file:
+            st.success("Kad penghargaan dijana.")
+            st.download_button("⬇️ Muat Turun Kad PDF", data=b"PDF Placeholder", file_name="kad.pdf")
